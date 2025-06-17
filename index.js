@@ -15,7 +15,9 @@ app.use(cors());
 
 // 路由
 const checkinRoutes = require('./routes/checkinRoutes');
+const userRoutes = require('./routes/userRoutes');
 app.use('/api', checkinRoutes);
+app.use('/api', userRoutes);
 
 // 测试路由
 app.get('/', (req, res) => {
