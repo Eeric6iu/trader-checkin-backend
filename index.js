@@ -16,8 +16,13 @@ app.use(cors());
 // 路由
 const checkinRoutes = require('./routes/checkinRoutes');
 const userRoutes = require('./routes/userRoutes');
+const authRoutes = require('./routes/authRoutes');
+const achievementRoutes = require('./routes/achievementRoutes');
+
 app.use('/api', checkinRoutes);
 app.use('/api', userRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/achievements', achievementRoutes);
 
 // 测试路由
 app.get('/', (req, res) => {

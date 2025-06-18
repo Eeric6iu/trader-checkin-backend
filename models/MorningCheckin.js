@@ -1,7 +1,14 @@
 const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
 const morningCheckinSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
+  userId: {
+    type: String,
+    unique: true,
+    default: uuidv4,
+    index: true,
+    required: true
+  },
   date: { type: Date, required: true },
   sleepQuality: [{ type: String }],
   mentalState: [{ type: String }],

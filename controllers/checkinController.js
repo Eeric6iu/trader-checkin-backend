@@ -1,6 +1,6 @@
 const Checkin = require('../models/Checkin');
 const User = require('../models/User');
-const Achievement = require('../models/Achievement');
+const { checkAndUnlockAchievements } = require('./achievementController');
 const MorningCheckin = require('../models/MorningCheckin');
 const EveningCheckin = require('../models/EveningCheckin');
 
@@ -26,7 +26,13 @@ exports.createCheckin = async (req, res) => {
     const today = new Date();
     today.setHours(0,0,0,0);
     if (!user) {
-      user = new User({ userId, streak: 1, points: 1 });
+      user = new User({
+        userId,
+        email: `${userId}@auto.local`,
+        nickname: userId,
+        streak: 1,
+        points: 1
+      });
     } else {
       // 判断是否连续打卡
       const lastCheckin = await Checkin.findOne({ userId }).sort({ checkinTime: -1 });
@@ -48,23 +54,10 @@ exports.createCheckin = async (req, res) => {
       }
       user.points += 1; // 每次打卡+1分
     }
-
-    // 检查成就
-    for (const ach of STREAK_ACHIEVEMENTS) {
-      if (user.streak === ach.condition) {
-        // 查找成就
-        let achievement = await Achievement.findOne({ achievementId: ach.achievementId });
-        if (!achievement) {
-          achievement = await Achievement.create(ach);
-        }
-        // 如果用户未获得该成就
-        if (!user.achievements.includes(achievement._id)) {
-          user.achievements.push(achievement._id);
-          user.points += ach.reward;
-        }
-      }
-    }
     await user.save();
+
+    // 检查并解锁成就
+    await checkAndUnlockAchievements(userId);
 
     res.status(201).json({ success: true, message: '打卡记录创建成功', data: checkin });
   } catch (error) {
@@ -109,7 +102,21 @@ exports.createMorningCheckin = async (req, res) => {
     if (exist) {
       return res.status(409).json({ success: false, message: '当天早盘打卡已存在', data: exist });
     }
+    // 自动创建用户
+    let user = await User.findOne({ userId });
+    if (!user) {
+      user = new User({
+        userId,
+        email: `${userId}@auto.local`,
+        nickname: userId,
+        streak: 1,
+        points: 1
+      });
+      await user.save();
+    }
     const morning = await MorningCheckin.create({ userId, date: day, sleepQuality, mentalState, todayGoals, plannedSymbols, riskSetup, unexpectedEvent, marketView, declaration });
+    // 检查并解锁成就
+    await checkAndUnlockAchievements(userId);
     res.status(201).json({ success: true, message: '早盘打卡成功', data: morning });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message, data: null });
@@ -134,7 +141,21 @@ exports.createEveningCheckin = async (req, res) => {
     if (exist) {
       return res.status(409).json({ success: false, message: '当天夜间打卡已存在', data: exist });
     }
+    // 自动创建用户
+    let user = await User.findOne({ userId });
+    if (!user) {
+      user = new User({
+        userId,
+        email: `${userId}@auto.local`,
+        nickname: userId,
+        streak: 1,
+        points: 1
+      });
+      await user.save();
+    }
     const evening = await EveningCheckin.create({ userId, date: day, singleTrade, plannedSymbolOnly, lotSizeOk, emotionTrade, missedOpportunity, selfDisciplineOk, reflection, selfRating, reminderTomorrow });
+    // 检查并解锁成就
+    await checkAndUnlockAchievements(userId);
     res.status(201).json({ success: true, message: '夜间打卡成功', data: evening });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message, data: null });
