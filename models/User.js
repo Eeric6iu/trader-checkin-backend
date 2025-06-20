@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema({
   // 登录密码，必填
   password: {
     type: String,
-    required: false // 第三方登录可为空
+    required: true
   },
   // 注册时间，自动生成
   registerDate: {
@@ -59,6 +59,11 @@ const userSchema = new mongoose.Schema({
   googleId: { type: String, default: null },
   facebookId: { type: String, default: null },
   appleId: { type: String, default: null },
+  unlockedBadges: [{
+    name: { type: String, required: true },
+    unlockedAt: { type: Date, default: Date.now }
+  }],
+  createdAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);

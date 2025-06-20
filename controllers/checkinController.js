@@ -1,8 +1,10 @@
-const Checkin = require('../models/Checkin');
 const User = require('../models/User');
-const { checkAndUnlockAchievements } = require('./achievementController');
+// const { checkAndUnlockAchievements } = require('./achievementController'); // 已废弃
 const MorningCheckin = require('../models/MorningCheckin');
 const EveningCheckin = require('../models/EveningCheckin');
+const { getValidCheckinDates, calculateStreaks } = require('../services/checkinService');
+const { addPointsForCheckin } = require('../services/pointsService');
+const { checkAndUnlockBadges } = require('../services/badgeService');
 
 // 连续天数成就配置
 const STREAK_ACHIEVEMENTS = [
@@ -84,81 +86,38 @@ exports.getUserCheckins = async (req, res) => {
   }
 };
 
-// 提交早盘/交易前打卡
+async function handleCheckin(Model, userId, data, checkinType, res) {
+  const day = new Date(data.date);
+  day.setHours(0, 0, 0, 0);
+
+  const exist = await Model.findOne({ userId, date: day });
+  if (exist) {
+    return res.status(400).json({ success: false, message: '今天已提交过同类型打卡' });
+  }
+
+  const checkinData = { ...data, userId, date: day };
+  const checkin = await Model.create(checkinData);
+
+  // 异步处理积分和勋章，不阻塞主流程
+  addPointsForCheckin(userId, checkinType, day).catch(console.error);
+  checkAndUnlockBadges(userId).catch(console.error);
+
+  res.status(201).json({ success: true, message: '打卡成功', data: checkin });
+}
+
 exports.createMorningCheckin = async (req, res) => {
   try {
-    const { userId, date, sleepQuality, mentalState, todayGoals, plannedSymbols, riskSetup, unexpectedEvent, marketView, declaration } = req.body;
-    if (!userId || !date) {
-      return res.status(400).json({ success: false, message: 'userId 和 date 必填', data: null });
-    }
-    // 统一 date 存储为当天 0点
-    const d = new Date(date);
-    if (isNaN(d.getTime())) {
-      return res.status(400).json({ success: false, message: '日期格式不正确', data: null });
-    }
-    const day = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-    // 保证同一用户同一天只有一条 morningCheckin
-    const exist = await MorningCheckin.findOne({ userId, date: day });
-    if (exist) {
-      return res.status(409).json({ success: false, message: '当天早盘打卡已存在', data: exist });
-    }
-    // 自动创建用户
-    let user = await User.findOne({ userId });
-    if (!user) {
-      user = new User({
-        userId,
-        email: `${userId}@auto.local`,
-        nickname: userId,
-        streak: 1,
-        points: 1
-      });
-      await user.save();
-    }
-    const morning = await MorningCheckin.create({ userId, date: day, sleepQuality, mentalState, todayGoals, plannedSymbols, riskSetup, unexpectedEvent, marketView, declaration });
-    // 检查并解锁成就
-    await checkAndUnlockAchievements(userId);
-    res.status(201).json({ success: true, message: '早盘打卡成功', data: morning });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message, data: null });
+    await handleCheckin(MorningCheckin, req.body.userId, req.body, 'morning', res);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
   }
 };
 
-// 提交收盘/夜间打卡
 exports.createEveningCheckin = async (req, res) => {
   try {
-    const { userId, date, singleTrade, plannedSymbolOnly, lotSizeOk, emotionTrade, missedOpportunity, selfDisciplineOk, reflection, selfRating, reminderTomorrow } = req.body;
-    if (!userId || !date) {
-      return res.status(400).json({ success: false, message: 'userId 和 date 必填', data: null });
-    }
-    // 统一 date 存储为当天 0点
-    const d = new Date(date);
-    if (isNaN(d.getTime())) {
-      return res.status(400).json({ success: false, message: '日期格式不正确', data: null });
-    }
-    const day = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-    // 保证同一用户同一天只有一条 eveningCheckin
-    const exist = await EveningCheckin.findOne({ userId, date: day });
-    if (exist) {
-      return res.status(409).json({ success: false, message: '当天夜间打卡已存在', data: exist });
-    }
-    // 自动创建用户
-    let user = await User.findOne({ userId });
-    if (!user) {
-      user = new User({
-        userId,
-        email: `${userId}@auto.local`,
-        nickname: userId,
-        streak: 1,
-        points: 1
-      });
-      await user.save();
-    }
-    const evening = await EveningCheckin.create({ userId, date: day, singleTrade, plannedSymbolOnly, lotSizeOk, emotionTrade, missedOpportunity, selfDisciplineOk, reflection, selfRating, reminderTomorrow });
-    // 检查并解锁成就
-    await checkAndUnlockAchievements(userId);
-    res.status(201).json({ success: true, message: '夜间打卡成功', data: evening });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message, data: null });
+    await handleCheckin(EveningCheckin, req.body.userId, req.body, 'evening', res);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
   }
 };
 
@@ -219,5 +178,50 @@ exports.getEveningCheckins = async (req, res) => {
     res.json({ success: true, message: '查询成功', data: list });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message, data: null });
+  }
+};
+
+exports.getCheckinStats = async (req, res) => {
+  try {
+    const { userId, from, to } = req.query;
+    if (!userId) return res.status(400).json({ success: false, message: 'userId is required' });
+
+    let end = to ? new Date(to) : new Date();
+    let start = from ? new Date(from) : new Date(new Date().setDate(end.getDate() - 29));
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    
+    const rangeDays = Math.round((end - start) / (1000 * 60 * 60 * 24));
+    
+    const validDates = await getValidCheckinDates(userId, start, end);
+    const allTimeValidDates = await getValidCheckinDates(userId, new Date(0), new Date());
+    
+    const { currentStreak, maxStreak } = calculateStreaks(allTimeValidDates);
+    
+    const checkedDays = validDates.length;
+    const missedDays = rangeDays - checkedDays;
+
+    res.json({
+      success: true,
+      data: {
+        totalDays: rangeDays,
+        checkedDays,
+        missedDays,
+        missedRate: rangeDays > 0 ? (missedDays / rangeDays).toFixed(2) : '0.00',
+        currentStreak,
+        maxStreak,
+        trend: Array.from({ length: rangeDays }, (_, i) => {
+            const d = new Date(start);
+            d.setDate(d.getDate() + i);
+            const dateStr = d.toISOString().slice(0, 10);
+            return {
+                date: dateStr,
+                checked: validDates.some(vd => vd.toISOString().slice(0, 10) === dateStr)
+            };
+        })
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
   }
 }; 

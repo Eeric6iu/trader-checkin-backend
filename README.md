@@ -175,6 +175,38 @@ trader-checkin-backend/
   }
   ```
 
+#### 7. 打卡成长统计
+- `GET /api/checkin/stats?userId=xxx&from=2024-05-01&to=2024-06-01` 查询指定用户在一段时间内的打卡成长统计（如无from/to默认最近30天）
+
+#### 返回字段说明
+- `totalDays`：统计区间总天数
+- `checkedDays`：已打卡天数
+- `missedDays`：错过天数
+- `missedRate`：错过率（错过天数/总天数，保留两位小数）
+- `currentStreak`：当前连续打卡天数
+- `maxStreak`：历史最长连续打卡天数
+- `trend`：每日打卡趋势数组（[{date, checked}]，便于前端画折线图）
+
+#### 示例返回
+```json
+{
+  "success": true,
+  "data": {
+    "totalDays": 31,
+    "checkedDays": 28,
+    "missedDays": 3,
+    "missedRate": "0.10",
+    "currentStreak": 7,
+    "maxStreak": 15,
+    "trend": [
+      { "date": "2024-05-01", "checked": true },
+      { "date": "2024-05-02", "checked": false },
+      ...
+    ]
+  }
+}
+```
+
 ### 🕒 正在开发/待开发功能（TODO）
 - [ ] 用户注册与登录
 - [ ] 更多成就类型与成长激励
@@ -361,3 +393,149 @@ trader-checkin-backend/
 - `verifyMTAccount`：用于验证MT账号连通性（可对接MetaApi等）
 - `fetchMT4History`：用于拉取真实交易历史（可对接MetaApi等）
 - 当前为mock实现，实际生产请替换为真实API调用
+
+## 打卡与成长系统 (V2)
+
+系统核心逻辑已重构，不再使用"日常打卡"。用户的成长、统计、勋章、社区、积分等均基于"早盘打卡"和"晚盘打卡"。
+
+### 核心判定逻辑
+- **有效打卡天**: 用户当天内只要完成 **早盘或晚盘任意一次打卡**，即算作一个"有效打卡天"。
+- **积分系统**: 早盘+2分，晚盘+2分，当天全完成额外+1分。积分仅为荣誉，不与任何权限挂钩。
+- **勋章/社区解锁**: 基于 **累计有效打卡天数**。
+
+---
+
+### 主要接口
+
+#### 1. 打卡
+- `POST /api/checkin/morning-checkin`: 提交早盘打卡
+- `POST /api/checkin/evening-checkin`: 提交晚盘打卡
+
+##### 早盘打卡请求体示例
+```json
+{
+    "userId": "user123",
+    "date": "2024-06-20",
+    "sleepQuality": "很好",
+    "mentalState": "放松",
+    "todayGoals": ["只做1单", "严守风控"],
+    "plannedSymbols": ["XAUUSD"],
+    "riskSetup": "止损30点，止盈60点，0.1手",
+    "unexpectedEvent": "无",
+    "marketView": "观望",
+    "declaration": "保持耐心，等待机会。"
+}
+```
+
+##### 晚盘打卡请求体示例
+```json
+{
+    "userId": "user123",
+    "date": "2024-06-20",
+    "singleTrade": "是",
+    "plannedSymbolOnly": "是",
+    "lotSizeOk": "是",
+    "emotionTrade": "没有",
+    "missedOpportunity": "否",
+    "selfDisciplineOk": "是",
+    "reflection": "今天严格执行了计划，无情绪化操作，很满意。",
+    "selfRating": 5,
+    "reminderTomorrow": "明天继续保持！"
+}
+```
+
+#### 2. 成长统计
+- `GET /api/checkin/stats?userId=xxx&from=...&to=...`: 查询个人打卡成长统计 (默认最近30天)。
+  - **返回**: `totalDays`, `checkedDays`, `missedDays`, `missedRate`, `currentStreak`, `maxStreak`, `trend`
+
+#### 3. 用户信息
+- `GET /api/user/points?userId=xxx`: 查询用户当前总积分及最近明细。
+- `GET /api/user/badges?userId=xxx`: 查询用户已解锁的勋章和所有勋章定义。
+
+#### 4. 社区
+- `GET /api/community/qualification?userId=xxx`: 查询用户社区解锁资格。
+  - **返回**: 包含各级社区的解锁状态、要求天数和用户当前天数。
+
+---
+
+### API 返回样例
+
+#### Get Stats
+```json
+{
+  "success": true,
+  "data": {
+    "totalDays": 30,
+    "checkedDays": 25,
+    "missedDays": 5,
+    "missedRate": "0.17",
+    "currentStreak": 10,
+    "maxStreak": 25,
+    "trend": [{"date": "2024-06-01", "checked": true}, ...]
+  }
+}
+```
+
+#### Get Points
+```json
+{
+  "success": true,
+  "points": 125,
+  "history": [
+    { "date": "2024-06-02T00:00:00.000Z", "type": "bonus", "points": 1 },
+    { "date": "2024-06-02T00:00:00.000Z", "type": "evening", "points": 2 },
+    { "date": "2024-06-01T00:00:00.000Z", "type": "morning", "points": 2 }
+  ]
+}
+```
+
+#### Get Badges
+```json
+{
+    "success": true,
+    "badges": [
+        { "name": "7天勋章", "unlockedAt": "2024-05-10T10:00:00.000Z" }
+    ],
+    "allBadges": [
+        { "name": "7天勋章", "description": "累计有效打卡7天", "condition": { "type": "CUMULATIVE_DAYS", "value": 7 }},
+        { "name": "30天勋章", "description": "累计有效打卡30天", "condition": { "type": "CUMULATIVE_DAYS", "value": 30 }}
+    ]
+}
+```
+
+#### Get Community Qualification
+```json
+{
+    "success": true,
+    "communities": [
+        { "name": "30天社区", "qualified": true, "daysRequired": 30, "userDays": 45 },
+        { "name": "60天社区", "qualified": false, "daysRequired": 60, "userDays": 45 }
+    ]
+}
+```
+
+---
+## 统一用户看板接口
+
+为方便前端一站式获取用户状态，新增统一看板接口。
+
+- `GET /api/user/dashboard?userId=xxx`: 获取用户所有关键状态信息。
+
+#### 返回样例
+```json
+{
+    "success": true,
+    "data": {
+        "userInfo": { "userId": "user123", "nickname": "TraderPro" },
+        "points": 125,
+        "badges": [{ "name": "7天勋章", "unlockedAt": "..." }],
+        "community": {
+            "qualified": ["30天社区"],
+            "nextTier": "60天社区",
+            "progress": "45/60"
+        },
+        "todayCheckin": { "morning": true, "evening": false },
+        "checkinStats": { "currentStreak": 10, "maxStreak": 25 }
+    }
+}
+```

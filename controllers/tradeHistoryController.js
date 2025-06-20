@@ -1,11 +1,35 @@
 const TradeHistory = require('../models/TradeHistory');
-const { fetchMT4History } = require('../services/metaApiService');
+const MTAccount = require('../models/MTAccount');
+const { fetchMT4History, verifyMTAccount } = require('../services/metaApiService');
 
 exports.syncHistory = async (req, res) => {
   try {
-    const { userId, account, platform } = req.body;
-    // 拉取真实交易历史
-    const trades = await fetchMT4History({ account, platform });
+    const { userId, account } = req.body;
+    // 1. 查找MTAccount，获取investorPassword/server/platform
+    const mtAccount = await MTAccount.findOne({ userId, account });
+    if (!mtAccount) {
+      return res.status(400).json({ success: false, message: 'MTAccount not found' });
+    }
+    // 2. 调用verifyMTAccount获取MetaApi accountId
+    const verifyResult = await verifyMTAccount({
+      account: mtAccount.account,
+      investorPassword: mtAccount.investorPassword,
+      server: mtAccount.server,
+      platform: mtAccount.platform
+    });
+    if (!verifyResult.success) {
+      return res.status(400).json({ success: false, message: verifyResult.error, raw: verifyResult.raw });
+    }
+    const accountId = verifyResult.accountId;
+    // 3. 拉取真实交易历史
+    const result = await fetchMT4History({ accountId });
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.error, raw: result.raw });
+    }
+    const trades = result.orders;
+    if (!Array.isArray(trades)) {
+      return res.status(400).json({ success: false, message: 'trades is not iterable', raw: trades });
+    }
     // 批量 upsert
     for (const t of trades) {
       await TradeHistory.updateOne(

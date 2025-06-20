@@ -18,4 +18,6 @@ router.get('/morning-checkin', checkinController.getMorningCheckins);
 // 新增：查询夜间打卡列表
 router.get('/evening-checkin', checkinController.getEveningCheckins);
 
+router.get('/stats', checkinController.getCheckinStats);
+
 module.exports = router; 

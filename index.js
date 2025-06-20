@@ -17,12 +17,22 @@ app.use(cors());
 const checkinRoutes = require('./routes/checkinRoutes');
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
-const achievementRoutes = require('./routes/achievementRoutes');
+// const achievementRoutes = require('./routes/achievementRoutes'); // 已废弃
+const mtAccountRoutes = require('./routes/mtAccountRoutes');
+const tradeHistoryRoutes = require('./routes/tradeHistoryRoutes');
+const tradePlanRoutes = require('./routes/tradePlanRoutes');
+const tradeCompareRoutes = require('./routes/tradeCompareRoutes');
+const communityRoutes = require('./routes/communityRoutes');
 
-app.use('/api', checkinRoutes);
-app.use('/api', userRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/achievements', achievementRoutes);
+app.use('/api/checkin', checkinRoutes);
+app.use('/api', authRoutes);
+app.use('/api/user', userRoutes);
+// app.use('/api/achievements', achievementRoutes); // 已废弃
+app.use('/api/mtaccount', mtAccountRoutes);
+app.use('/api/tradehistory', tradeHistoryRoutes);
+app.use('/api/tradeplan', tradePlanRoutes);
+app.use('/api/tradecompare', tradeCompareRoutes);
+app.use('/api/community', communityRoutes);
 
 // 测试路由
 app.get('/', (req, res) => {

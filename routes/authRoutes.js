@@ -47,4 +47,8 @@ router.get('/facebook/callback', passport.authenticate('facebook', { session: fa
 
 // Apple OAuth（如需可补充）
 
-module.exports = router; 
+// Email/Password Authentication
+router.post('/register', authController.register);
+router.post('/login', authController.login);
+
+module.exports = router;
